@@ -2,6 +2,7 @@
 #define __SERVER_H
 
 enum server_mode{
+    UNDEFINED,
     LOCAL,
     PROXY
 };
