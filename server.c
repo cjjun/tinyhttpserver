@@ -46,14 +46,15 @@ void handle_proxy_request(int fd) {
     int remote_fd;
     int proxy_port;
     struct sockaddr_in remote_address;
-    int len_domain = strrchr(url, ':') - url;
+    int len_domain;
+    for (len_domain = 0; url[len_domain] != ':' && url[len_domain]; len_domain++);
 
     char *domain = malloc( len_domain + 1 );
-    strncpy(domain, url, len_domain);
+    strlcpy(domain, url, len_domain + 1);
     domain[len_domain] = '\0';
 
 
-    if ( domain[len_domain] == ':') {
+    if ( url[len_domain] == ':') {
         proxy_port = atoi (url + len_domain + 1);
         if (proxy_port == 0) {
             perror("Illegal port");
@@ -62,7 +63,7 @@ void handle_proxy_request(int fd) {
     }
     else 
         proxy_port = 80;
-
+    printf("proxy %s:%d\n", domain, proxy_port);
     struct hostent *host =  gethostbyname (domain);
     free (domain);
     if (host == NULL) {
