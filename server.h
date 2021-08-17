@@ -7,4 +7,6 @@ enum server_mode{
     PROXY
 };
 
+void handle_proxy_request(int fd);
+
 #endif /* server.c */
