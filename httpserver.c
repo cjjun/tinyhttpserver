@@ -116,7 +116,7 @@ int main (int argc, char **argv) {
                 exit (EXIT_FAILURE);
             }
             server_mode = PROXY;
-            url = argv[++i];
+            // url = argv[++i];
         } else if ( strcmp("--port", argv[i]) == 0 ) {
             server_port = atoi ( argv[++i] );
             if (server_port == 0 || server_port < 0 || server_port > 65535) {
@@ -131,7 +131,7 @@ int main (int argc, char **argv) {
             }
         } else if ( strcmp("--help", argv[i]) == 0 ) {
             printf("\nUsage:  ./httpserver --files files/ --port 8000 [--num-threads 5] or\n"
-            "\t./httpserver --proxy inst.eecs.berkeley.edu:80 --port 8000 [--num-threads 5]\n\n");
+            "\t./httpserver --proxy --port 8000 [--num-threads 5]\n\n");
             exit (0);
         } else {
             printf("undefined parameter %s\n", argv[i]);
