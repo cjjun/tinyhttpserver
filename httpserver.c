@@ -1,12 +1,15 @@
 #include<stdio.h>
 #include<stdlib.h>
+#include<errno.h>
+#include<unistd.h>
 #include<assert.h>
 #include<math.h>
+#include<signal.h>
 #include<ctype.h>
 #include<string.h>
 #include<dirent.h>          /* Directory lib */
 #include<arpa/inet.h>       /* Basic net operations */
-#include <sys/socket.h>     /* Socket lib */
+#include<sys/socket.h>     /* Socket lib */
 /* User lib */
 #include "threadpool.h"
 #include "libhttp.h"
@@ -17,6 +20,7 @@ int server_port = 8000;
 int num_threads = 10;
 char *url = NULL;
 enum server_mode server_mode = UNDEFINED;
+#define MAX_CONNECTIONS 3000
 
 // Entry function for client file requests.
 void serve_client (void *aux) {
@@ -26,10 +30,13 @@ void serve_client (void *aux) {
 // Entry function to proxy client requests.
 void proxy_client (void *aux) {
     int client_fd = (int)aux;
+    handle_proxy_request (client_fd);
 }
 
+// server_fd
+int server_fd = -1;
 void run_server (void) {
-    int server_fd, client_fd;
+    int client_fd;
     struct sockaddr_in address;
 
     pool_init (num_threads);
@@ -41,12 +48,14 @@ void run_server (void) {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
-    if (bind (server_fd, (struct sockeaddr *)&address, sizeof(address) ) < 0 ) {
+    unsigned int value = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR,(void *) &value,sizeof(value));
+    if (bind (server_fd, (const struct sockeaddr *)&address, sizeof(address) ) < 0 ) {
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
 
-    if ( listen (server_fd, 2000) == -1) {
+    if ( listen (server_fd, MAX_CONNECTIONS) == -1) {
         perror("listen failed");
         exit(EXIT_FAILURE);
     }
@@ -58,16 +67,34 @@ void run_server (void) {
             perror ("Error accepting socket\n");
             continue;
         }
-
-        executor_t client_executor = executor_init ( server_mode == LOCAL? 
+        
+        executor_t eid = executor_init ( server_mode == LOCAL? 
                                 serve_client: proxy_client,  (void *)client_fd);
-        executor_start (&client_executor);
+        
+        if (eid == EID_ERROR) {
+            perror("create executor failed\n");
+            continue;
+        }
+        if (!executor_start (eid)) {
+            perror("executor start failed\n");
+        }
+        // printf("main --> executor %d\n", eid);
+        printf("connection from %s\n", inet_ntoa(*(struct in_addr *)&address.sin_addr.s_addr) );
     }
+}
+
+void signal_callback_handler(int signum) {
+    printf("Caught signal %d: %s\n", signum, strsignal(signum));
+    printf("Closing socket %d\n", server_fd);
+    if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
+    exit(0);
 }
 
 //  ./httpserver --files files/ --port 8000 --num-threads 5
 // ./httpserver --proxy inst.eecs.berkeley.edu:80 --port 8000 --num-threads 5
 int main (int argc, char **argv) {
+
+    signal(SIGINT, signal_callback_handler);
     server_port = 8000;
     for (int i = 1; i < argc; i++) {
         if (strcmp("--files", argv[i]) == 0) {

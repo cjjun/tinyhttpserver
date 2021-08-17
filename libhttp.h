@@ -20,6 +20,7 @@
 #ifndef LIBHTTP_H
 #define LIBHTTP_H
 
+#include<stddef.h>
 /*
  * Functions for parsing an HTTP request.
  */
