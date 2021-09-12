@@ -9,7 +9,12 @@
 #include<unistd.h>
 #include<arpa/inet.h>       /* Basic net operations */
 #include<sys/socket.h>     /* Socket lib */
+#include<sys/types.h>
+#include<sys/stat.h>
 #include<netdb.h>
+#include<dirent.h>
+#include<unistd.h>
+#include <time.h>
 
 #define LIBHTTP_REQUEST_MAX_SIZE 8192
 
@@ -111,4 +116,163 @@ void handle_proxy_request(int fd) {
 
     close (fd);
 
+}
+
+int isDir (char *path) {
+    struct stat path_stat;
+    if (stat(path, &path_stat) == -1)
+        return -1;
+    return S_ISDIR(path_stat.st_mode);
+}
+
+char *get_file_suffix (char *filename) {
+    char *p = NULL;
+    for (int i = 0; filename[i]; i++) 
+        if (filename[i] == '.')
+            p = &filename[i];
+    if(p)
+        return p + 1;
+    else 
+        return p;
+}
+
+void http_send_file (int fd, char *filename) {
+    // Get current time
+    char *buf = malloc(LIBHTTP_REQUEST_MAX_SIZE+1);
+    time_t now = time (0);
+    strftime (buf, 100, "%c", localtime (&now));
+
+    struct FILE *file = fopen(filename, "r");
+    fseek(file, 0, SEEK_END);
+    int lengthOfFile = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Send http header
+    http_start_response(fd, 200);
+    http_send_header(fd, "Server", "Tinyhttpserver");
+    http_send_header(fd, "Date", buf);
+    char *suffix = get_file_suffix(filename);
+    if (strcmp(suffix, "html") == 0)
+        http_send_header(fd, "Content-type", "text/html; charset=utf-8"); 
+    else if (strcmp(suffix, "pdf") == 0) 
+        http_send_header(fd, "Content-type", "application/pdf"); 
+    else 
+        http_send_header(fd, "Content-type", "application/octet-stream"); 
+    sprintf(buf, "%d", lengthOfFile);
+    http_send_header(fd, "Content-Length", buf);
+    http_end_headers(fd);
+
+
+    while (lengthOfFile > 0) {
+        int readbytes = fread(buf, 1, LIBHTTP_REQUEST_MAX_SIZE > lengthOfFile? 
+            lengthOfFile: LIBHTTP_REQUEST_MAX_SIZE, file );
+        http_send_data(fd, buf, readbytes);
+        lengthOfFile -= readbytes;
+    }
+
+    fclose (file);
+    free (buf);
+}
+
+void http_send_404 (int fd) {
+    char buf[100];
+    http_start_response(fd, 404);
+    http_send_header(fd, "Server", "Tinyhttpserver");
+    time_t now = time (0);
+    strftime (buf, 100, "%c", localtime (&now));
+    http_send_header(fd, "Date", buf);
+    http_send_header(fd, "Connection", "close");
+    http_send_header(fd, "Content-type", "text/html; charset=utf-8"); 
+    sprintf(buf, "%d", 0);
+    http_send_header(fd, "Content-Length", buf);
+
+    http_end_headers(fd);
+}
+
+// Concert %AB to uint8_t 0xAB and return as character
+char read_perc (char *p) {
+    uint8_t ans = 0;
+    if (p[1] >= 'A' && p[1] <= 'F')
+        ans = p[1] - 'A' + 10;
+    else 
+        ans = p[1] - '0';
+    
+    ans <<= 4;
+
+    if (p[2] >= 'A' && p[2] <= 'F')
+        ans += p[2] - 'A' + 10;
+    else 
+        ans += p[2] - '0';
+    return ans;
+}
+
+// decode url with percentage encode
+void urlDecode(char *src, char *des) {
+    int top = 0;
+    for (int i = 0; src[i]; i++) {
+        if (src[i] == '%') {
+            des[top++] = read_perc(src + i);
+            i += 2;
+        }
+        else 
+            des[top++] = src[i];
+    }
+    des[top] = '\0';
+}
+
+void handle_web_request (int fd) {
+    struct http_request *request = http_request_parse(fd);
+    printf("\"GET %s\"", request->path);
+
+    char *old = request->path;
+    request->path = malloc( strlen(old) + 10 );
+    request->path[0] = '.';
+    urlDecode(old, request->path+1);
+
+    free (old);
+    int isdir = isDir(request->path);
+    if (isdir == -1) {  
+        http_send_404(fd);
+        printf(" 404 Not found\n");
+        return;
+    }
+    
+    if (isdir) {
+        struct DIR *dir = opendir(request->path);
+        struct dirent *entry;
+        
+        char buf[20];
+        sprintf(buf, "/tmp/%d.html", fd);
+        struct FILE *file = fopen(buf, "w");
+        // Generate html head
+        fprintf(file, "%s", "<!DOCTYPE HTML PUBLIC>\n");
+        fprintf(file, "%s", "<html>\n");
+            fprintf(file, "%s", "<head>\n");
+                fprintf(file, "%s", "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\n");
+                fprintf(file, "%s", "<title>Directory listing for /</title>\n");
+            fprintf(file, "%s", "</head>\n");
+
+            fprintf(file, "%s", "<body>\n");
+            fprintf(file, "%s", "<h1>Directory listing for /</h1>\n<hr>\n<ul>\n");
+            while( (entry = readdir(dir)) != NULL ) {
+                if (entry->d_name[0] == '.')
+                    continue;
+                if (entry->d_type & DT_DIR)
+                    fprintf(file, "<li><a href=\"%s/\">%s/</a></li>\n", entry->d_name, entry->d_name);
+                else 
+                    fprintf(file, "<li><a href=\"%s\">%s</a></li>\n", entry->d_name, entry->d_name);
+            }
+            fprintf(file, "%s", "</ul>\n<hr>\n");
+            fprintf(file, "%s", "</body>\n");
+        fprintf(file, "%s", "</html>\n");
+        fclose(file);
+        closedir(dir);
+        http_send_file(fd, buf);
+    } else {
+        http_send_file(fd, request->path);
+    }
+    printf(" 200 OK\n");
+    free(request->path);
+    free(request->method);
+    free(request);
 }

@@ -25,6 +25,7 @@ enum server_mode server_mode = UNDEFINED;
 // Entry function for client file requests.
 void serve_client (void *aux) {
     int client_fd = (int)aux;
+    handle_web_request(client_fd);
 }
 
 // Entry function to proxy client requests.
@@ -102,7 +103,7 @@ int main (int argc, char **argv) {
                 printf("Conflict option: --files\n");
                 exit (EXIT_FAILURE);
             }
-            if ( strncmp (argv[++i], "files/", 6) == 0 ) {
+            if (chdir (argv[++i]) == 0) {
                 server_mode = LOCAL;
                 url = &argv[i][5];
             }
