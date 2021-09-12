@@ -241,8 +241,8 @@ void handle_web_request (int fd) {
         struct DIR *dir = opendir(request->path);
         struct dirent *entry;
         
-        char buf[20];
-        sprintf(buf, "/tmp/%d.html", fd);
+        char buf[50];
+        sprintf(buf, "/tmp/tinyhttp_%d.html", fd);
         struct FILE *file = fopen(buf, "w");
         // Generate html head
         fprintf(file, "%s", "<!DOCTYPE HTML PUBLIC>\n");
@@ -265,12 +265,17 @@ void handle_web_request (int fd) {
             fprintf(file, "%s", "</ul>\n<hr>\n");
             fprintf(file, "%s", "</body>\n");
         fprintf(file, "%s", "</html>\n");
+
         fclose(file);
         closedir(dir);
+        // Send and remove temporary file
         http_send_file(fd, buf);
+        remove (buf);
+
     } else {
         http_send_file(fd, request->path);
     }
+
     printf(" 200 OK\n");
     free(request->path);
     free(request->method);
